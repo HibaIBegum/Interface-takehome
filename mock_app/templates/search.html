@@ -1,0 +1,12 @@
+{% extends "_base.html" %}
+{% block title %}Member Search{% endblock %}
+{% block body %}
+<form method="post" action="/app/search">
+<table class="q0" width="480" cellpadding="5" cellspacing="0">
+<tr><td class="h9" colspan="2">Member Search</td></tr>
+{% if not_found %}<tr><td colspan="2" class="r2">No member found for Member ID {{ mid }}.</td></tr>{% endif %}
+<tr><td class="z4" width="140">Member ID:</td><td><input type="text" name="mid" size="12" maxlength="10" value="{{ mid }}" class="b7"></td></tr>
+<tr><td></td><td><input type="submit" value="Search" class="b7"></td></tr>
+</table>
+</form>
+{% endblock %}

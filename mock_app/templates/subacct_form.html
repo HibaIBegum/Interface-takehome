@@ -1,0 +1,22 @@
+{% extends "_base.html" %}
+{% block title %}Open Sub-Account{% endblock %}
+{% block body %}
+<form method="post" action="/app/subacct/new">
+<input type="hidden" name="m" value="{{ m.member_id }}">
+<table class="q0" width="620" cellpadding="5" cellspacing="0">
+<tr><td class="h9" colspan="3">Open Sub-Account</td></tr>
+{% if errors %}<tr><td colspan="3" class="r2">Please correct the errors below.</td></tr>{% endif %}
+<tr><td class="z4" width="150">Member:</td><td colspan="2">{{ m.name }} ({{ m.member_id }})</td></tr>
+<tr><td class="z4">Sub-Account Type:</td>
+<td><select name="typ" class="b7">
+<option value="">-- Select --</option>
+{% for code, label in types.items() %}<option value="{{ code }}"{% if v.typ == code %} selected{% endif %}>{{ label }}</option>{% endfor %}
+</select></td>
+<td class="r2">{{ errors.get('typ', '') }}</td></tr>
+<tr><td class="z4">Nickname:</td><td><input type="text" name="nick" size="22" value="{{ v.nick }}" class="b7"></td><td class="r2">{{ errors.get('nick', '') }}</td></tr>
+<tr><td class="z4">Initial Deposit ($):</td><td><input type="text" name="amt" size="12" value="{{ v.amt }}" class="b7"></td><td class="r2">{{ errors.get('amt', '') }}</td></tr>
+<tr><td></td><td colspan="2"><font color="#555555">Funds are transferred from Savings (available: {{ m.savings|money }}).</font></td></tr>
+<tr><td></td><td colspan="2"><input type="submit" value="Continue" class="b7"> &nbsp; <a href="/app/member?m={{ m.member_id }}">Cancel</a></td></tr>
+</table>
+</form>
+{% endblock %}

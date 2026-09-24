@@ -1,0 +1,18 @@
+{% extends "_base.html" %}
+{% block title %}Review Sub-Account{% endblock %}
+{% block body %}
+<form method="post" action="/app/subacct/submit">
+<input type="hidden" name="t" value="{{ d.token }}">
+<table class="q0" width="560" cellpadding="5" cellspacing="0">
+<tr><td class="h9" colspan="2">Review Sub-Account Request</td></tr>
+{% if error %}<tr><td colspan="2" class="r2">{{ error }}</td></tr>{% endif %}
+<tr><td colspan="2">Please review the details below. Click Submit to open the sub-account.</td></tr>
+<tr><td class="z4" width="160">Member:</td><td>{{ m.name }} ({{ m.member_id }})</td></tr>
+<tr><td class="z4">Sub-Account Type:</td><td>{{ d.type_label }}</td></tr>
+<tr><td class="z4">Nickname:</td><td>{{ d.nickname }}</td></tr>
+<tr><td class="z4">Initial Deposit:</td><td>{{ d.amount|money }}</td></tr>
+<tr><td class="z4">Funding Account:</td><td>Savings</td></tr>
+<tr><td></td><td><input type="submit" value="Submit" class="b7"> &nbsp; <a href="/app/member?m={{ m.member_id }}">Cancel</a></td></tr>
+</table>
+</form>
+{% endblock %}

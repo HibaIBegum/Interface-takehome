@@ -1,0 +1,15 @@
+{% extends "_base.html" %}
+{% block title %}Sub-Account Opened{% endblock %}
+{% block body %}
+<table class="q0" width="560" cellpadding="5" cellspacing="0">
+<tr><td class="h9" colspan="2">Sub-Account Opened</td></tr>
+{% if duplicate %}<tr><td colspan="2" class="r2">This request had already been submitted. No duplicate sub-account was created.</td></tr>{% endif %}
+<tr><td colspan="2" class="g5">The sub-account was opened successfully.</td></tr>
+<tr><td class="z4" width="160">Reference Number:</td><td><b>{{ r.reference }}</b></td></tr>
+<tr><td class="z4">Member:</td><td>{{ r.member_name }} ({{ r.member_id }})</td></tr>
+<tr><td class="z4">Sub-Account Type:</td><td>{{ r.type_label }}</td></tr>
+<tr><td class="z4">Nickname:</td><td>{{ r.nickname }}</td></tr>
+<tr><td class="z4">Initial Deposit:</td><td>{{ r.amount|money }}</td></tr>
+</table>
+<br><a href="/app/member?m={{ r.member_id }}">Return to Member</a> &nbsp; <a href="/app/search">New Search</a>
+{% endblock %}

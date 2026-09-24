@@ -1,0 +1,25 @@
+{% extends "_base.html" %}
+{% block title %}Member Detail{% endblock %}
+{% block body %}
+<table class="q0" width="560" cellpadding="5" cellspacing="0">
+<tr><td class="h9" colspan="2">Member Detail</td></tr>
+<tr><td class="z4" width="160">Member Name:</td><td>{{ m.name }}</td></tr>
+<tr><td class="z4">Member ID:</td><td>{{ m.member_id }}</td></tr>
+<tr><td class="z4">SSN:</td><td>{{ m.masked_ssn }}</td></tr>
+</table>
+<br>
+<table class="q0" width="560" cellpadding="5" cellspacing="0">
+<tr><td class="h9">Account</td><td class="h9">Nickname</td><td class="h9" align="right">Balance</td></tr>
+<tr><td>Savings</td><td>&nbsp;</td><td align="right">{{ m.savings|money }}</td></tr>
+<tr><td>Checking</td><td>&nbsp;</td><td align="right">{{ m.checking|money }}</td></tr>
+{% for s in m.sub_accounts %}
+<tr><td>{{ s.type_label }}</td><td>{{ s.nickname }}</td><td align="right">{{ s.balance|money }}</td></tr>
+{% endfor %}
+</table>
+<br>
+<form method="get" action="/app/subacct/new">
+<input type="hidden" name="m" value="{{ m.member_id }}">
+<input type="submit" value="Open Sub-Account" class="b7">
+&nbsp; <a href="/app/search">New Search</a>
+</form>
+{% endblock %}
