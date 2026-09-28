@@ -75,7 +75,30 @@ _ELEMENT_JS = """
 }
 """ % _JS_IS_LABELABLE.strip()
 
-_BODY_TEXT_JS = "() => (document.body && document.body.tagName === 'BODY') ? document.body.innerText : ''"
+# Data cells a caption can address: the cell right after the row caption, or any cell whose
+# column has a header (same cell count as the header row, so colspans can't shift the index).
+_LEAF_CELLS_XPATH = "//td[not(.//td) and not(.//input or .//select or .//textarea or .//button or .//a)]"
+_CELL_JS = """
+(cells) => {
+  const clean = s => (s || '').replace(/\\s+/g, ' ').trim();
+  const strip = s => clean(s).replace(/:$/, '').trim();
+  const all = Array.from(document.getElementsByTagName('*'));
+  return cells.map(td => {
+    const row = td.parentElement, table = td.closest('table');
+    const skip = {keep: false};
+    if (!row || !table || td.cellIndex < 1 || row.rowIndex === 0) return skip;
+    const text = clean(td.innerText), label = strip(row.cells[0].innerText);
+    if (!text || !label) return skip;
+    const header = table.rows[0];
+    const column = header.cells.length === row.cells.length ? strip(header.cells[td.cellIndex].innerText) : '';
+    if (!column && td.cellIndex !== 1) return skip;
+    return {keep: true, order: all.indexOf(td), text: text.slice(0, 80), label, column,
+            near: clean(row.innerText).slice(0, 120)};
+  });
+}
+"""
+
+_BODY_TEXT_JS ="() => (document.body && document.body.tagName === 'BODY') ? document.body.innerText : ''"
 
 # Explicit readiness condition for a frame path: every frame exists and its document has parsed.
 _FRAME_READY_JS = """
@@ -123,6 +146,16 @@ def _caption_value_cell_xpath(caption: str) -> str:
     exact, colon = _xpath_literal(caption), _xpath_literal(caption + ":")
     return (f"//*[self::td or self::th][normalize-space(.)={exact} or normalize-space(.)={colon}]"
             f"/following-sibling::td[1]")
+
+
+def _row_column_cell_xpath(caption: str, column: str) -> str:
+    """The cell in the row whose first cell is `caption`, under the header cell `column`."""
+    cap, cap_colon = _xpath_literal(caption), _xpath_literal(caption + ":")
+    col, col_colon = _xpath_literal(column), _xpath_literal(column + ":")
+    header = (f"(ancestor::table[1]/tr | ancestor::table[1]/*/tr)[1]"
+              f"/*[normalize-space(.)={col} or normalize-space(.)={col_colon}]")
+    return (f"//tr[*[1][normalize-space(.)={cap} or normalize-space(.)={cap_colon}]]"
+            f"/*[{header} and position() = count({header}/preceding-sibling::*) + 1]")
 
 
 def _snapshot_name(snapshot: str) -> str:
@@ -201,7 +234,8 @@ class PlaywrightSurface:
             table_caption = frame.locator("xpath=" + _caption_value_cell_xpath(c.value) + _XPATH_LABELABLE)
             loc = frame.get_by_label(c.value, exact=True).or_(table_caption)
         elif c.strategy is Strategy.TEXT_NEAR:
-            loc = frame.locator("xpath=" + _caption_value_cell_xpath(c.value))
+            xpath = _row_column_cell_xpath(c.value, c.column) if c.column else _caption_value_cell_xpath(c.value)
+            loc = frame.locator("xpath=" + xpath)
             if c.role:
                 loc = loc.get_by_role(c.role)
         elif c.strategy is Strategy.CSS:
@@ -267,6 +301,15 @@ class PlaywrightSurface:
                     "options": info["options"],
                     "occluded": info["occluded"],
                 }))
+        cells = frame.locator("xpath=" + _LEAF_CELLS_XPATH).filter(visible=True)
+        for i, info in enumerate(cells.evaluate_all(_CELL_JS)):
+            if not info["keep"]:
+                continue
+            box = cells.nth(i).bounding_box(timeout=1000)
+            found.append(((frame_order, info["order"]), {
+                "role": "cell", "name": "", "label": info["label"], "column": info["column"], "text": info["text"],
+                "nearby_text": info["near"], "frame_path": path, "bbox": BBox(**box) if box else None,
+            }))
         return found
 
     def _observe_once(self, screenshot_path: Path | None) -> Observation:
@@ -411,6 +454,6 @@ def _state_hash(frames: list[FrameInfo], elements: list[ElementInfo]) -> str:
     """Same screen => same hash, regardless of data shown or values typed."""
     signature = {
         "frames": [[f.path, urlsplit(f.url).path] for f in frames],
-        "elements": [[e.frame_path, e.role, e.name, e.label] for e in elements],
+        "elements": [[e.frame_path, e.role, e.name, e.label, e.column] for e in elements],  # never e.text
     }
     return hashlib.sha256(json.dumps(signature).encode()).hexdigest()[:16]

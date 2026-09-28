@@ -1,0 +1,20 @@
+# Safety policy. Every action from the agent, replay or recovery is checked against this
+# before it reaches the UI, and every log line / file is redacted with it before it is written.
+
+# Actions are only allowed while the page is on, or navigating to, one of these hosts.
+allowed_hosts:
+  - 127.0.0.1
+  - localhost
+
+# Clicking a control whose name or label contains one of these words commits a change.
+# Commit actions need approval (see commit_requires_approval). Pressing Enter counts as commit.
+commit_keywords: [submit, confirm, transfer, delete, approve, pay, post, send, remove]
+commit_requires_approval: true
+
+# Text matching these patterns is replaced with [REDACTED:<name>] in logs and artifacts.
+redact_patterns:
+  ssn: '\b\d{3}-\d{2}-\d{4}\b'
+
+# Regions blacked out in every screenshot (password inputs are always masked).
+screenshot_mask:
+  - {strategy: text_near, value: SSN}

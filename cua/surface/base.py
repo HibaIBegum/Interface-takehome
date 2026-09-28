@@ -24,7 +24,7 @@ class _Model(BaseModel):
 class Strategy(str, Enum):
     ROLE_NAME = "role_name"  # ARIA role + exact accessible name
     LABEL = "label"          # form control by its label (real <label>/aria-label, or table caption cell)
-    TEXT_NEAR = "text_near"  # the cell next to a caption cell with this text (optionally narrowed by role)
+    TEXT_NEAR = "text_near"  # table cell by row caption: the next cell, or the cell under header `column`
     CSS = "css"              # raw CSS selector; brittle, last structural resort
     COORDS = "coords"        # "x,y" in top-level viewport pixels; no structural check at all
 
@@ -33,12 +33,15 @@ class LocatorCandidate(_Model):
     strategy: Strategy
     value: str
     role: str | None = None
+    column: str | None = None  # text_near only: header text of the column to read in the caption's row
     frame_path: FramePath = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check(self) -> LocatorCandidate:
         if self.strategy is Strategy.ROLE_NAME and not self.role:
             raise ValueError("role_name candidates need a role")
+        if self.column is not None and self.strategy is not Strategy.TEXT_NEAR:
+            raise ValueError("column only applies to text_near candidates")
         if self.strategy is Strategy.COORDS:
             self.point()  # validates format
         return self
@@ -82,6 +85,12 @@ class BBox(_Model):
 
 
 class ElementInfo(_Model):
+    """An interactive element, or a data cell (role "cell") that can be read with extract.
+
+    For cells, `label` is the row caption, `column` the column header (if the table has one)
+    and `text` the displayed value. Cell text is data, so it never feeds the state hash.
+    """
+
     index: int
     role: str
     name: str
@@ -91,6 +100,8 @@ class ElementInfo(_Model):
     bbox: BBox | None
     options: list[str] | None = None  # visible option labels, for comboboxes
     occluded: bool = False            # something else (e.g. a modal) is on top of its center point
+    text: str = ""                    # cells only
+    column: str = ""                  # cells only
 
 
 class FrameInfo(_Model):
@@ -111,6 +122,12 @@ class Observation(_Model):
 
 def target_for(element: ElementInfo) -> Target:
     """Structural candidates for an observed element, most semantic first. Never coords."""
+    if element.role == "cell":
+        return Target(
+            candidates=[LocatorCandidate(strategy=Strategy.TEXT_NEAR, value=element.label,
+                                         column=element.column or None, frame_path=element.frame_path)],
+            description=f"cell {element.label!r}" + (f" / {element.column!r}" if element.column else ""),
+        )
     candidates: list[LocatorCandidate] = []
     if element.name:
         candidates.append(LocatorCandidate(

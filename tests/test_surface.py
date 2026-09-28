@@ -131,6 +131,18 @@ def test_every_observed_element_resolves_back_to_itself(surface, screen):
         assert resolved.locator.bounding_box() == element.bbox.model_dump(), element
 
 
+def test_data_cells_are_addressable_by_row_and_column(surface):
+    login(surface)
+    open_member(surface)
+    cells = {(e.label, e.column): e for e in surface.observe().elements if e.role == "cell"}
+
+    savings = cells[("Savings", "Balance")]
+    assert savings.text == "$5,230.17"
+    assert surface.extract(target_for(savings)) == "$5,230.17"
+    assert cells[("Member Name", "")].text == "Jane Q. Testmember"  # key/value row: no column header
+    assert ("Savings", "Nickname") not in cells                      # empty cells are not listed
+
+
 # ---------------------------------------------------------------- observation content
 
 def test_observation_carries_no_typed_values(surface):
