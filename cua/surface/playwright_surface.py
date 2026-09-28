@@ -70,7 +70,8 @@ _ELEMENT_JS = """
       occluded = !!hit && hit !== el && !el.contains(hit);
     }
     const options = el.tagName === 'SELECT' ? Array.from(el.options).map(o => clean(o.text)) : null;
-    return {order: all.indexOf(el), label, near: near.slice(0, 120), occluded, options};
+    const fieldName = labelable(el) ? (el.getAttribute('name') || '') : '';
+    return {order: all.indexOf(el), label, near: near.slice(0, 120), occluded, options, fieldName};
   });
 }
 """ % _JS_IS_LABELABLE.strip()
@@ -224,6 +225,27 @@ class PlaywrightSurface:
         except PlaywrightTimeoutError:
             pass  # resolution will report zero matches
 
+    def _await_frame(self, path: FramePath, timeout_ms: float) -> Frame:
+        """The frame once its document has parsed *and* Playwright has registered it.
+
+        The page's JS can see a new frame slightly before Playwright's frame tree does, so after the
+        DOM-side check we also wait on frame navigation events (re-checking at least every 250 ms,
+        in case the event fired just before we started listening), bounded by the deadline.
+        """
+        deadline = time.monotonic() + timeout_ms / 1000
+        self._wait_frame_ready(path, timeout_ms)
+        while True:
+            try:
+                return self._frame(path)
+            except FrameNotFound:
+                remaining = (deadline - time.monotonic()) * 1000
+                if remaining <= 0:
+                    raise
+                try:
+                    self.page.wait_for_event("framenavigated", timeout=min(remaining, 250))
+                except PlaywrightTimeoutError:
+                    pass
+
     # ------------------------------------------------------------ resolution
 
     def _locator(self, c: LocatorCandidate) -> Locator:
@@ -251,8 +273,8 @@ class PlaywrightSurface:
             return
         deadline = time.monotonic() + timeout_ms / 1000
         frame_path = structural[0].frame_path
-        self._wait_frame_ready(frame_path, timeout_ms)
         try:
+            self._await_frame(frame_path, timeout_ms)
             locs = [self._locator(c) for c in structural if c.frame_path == frame_path]
         except FrameNotFound:
             return
@@ -300,6 +322,7 @@ class PlaywrightSurface:
                     "bbox": BBox(**box) if box else None,
                     "options": info["options"],
                     "occluded": info["occluded"],
+                    "field_name": info["fieldName"],
                 }))
         cells = frame.locator("xpath=" + _LEAF_CELLS_XPATH).filter(visible=True)
         for i, info in enumerate(cells.evaluate_all(_CELL_JS)):
@@ -441,8 +464,7 @@ class PlaywrightSurface:
             first = next(c for c in action.target.candidates if c.strategy is not Strategy.COORDS)
             loc = self._locator(first)
         else:
-            self._wait_frame_ready(action.frame_path, timeout)
-            loc = self._frame(action.frame_path).get_by_text(action.text).filter(visible=True)
+            loc = self._await_frame(action.frame_path, timeout).get_by_text(action.text).filter(visible=True)
         if action.state == "visible":
             loc.first.wait_for(state="visible", timeout=timeout)
         else:

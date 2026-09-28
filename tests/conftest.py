@@ -11,7 +11,7 @@ from werkzeug.serving import make_server
 from cua.surface.playwright_surface import PlaywrightSurface
 from mock_app import create_app
 
-MOCK_USER = "teller"
+MOCK_USER = "op-teller-7731"
 MOCK_PASSWORD = "pw-for-tests"
 
 

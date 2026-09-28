@@ -102,6 +102,7 @@ class ElementInfo(_Model):
     occluded: bool = False            # something else (e.g. a modal) is on top of its center point
     text: str = ""                    # cells only
     column: str = ""                  # cells only
+    field_name: str = ""              # form controls: the HTML name attribute (the server's POST contract)
 
 
 class FrameInfo(_Model):

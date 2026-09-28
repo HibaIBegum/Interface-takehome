@@ -57,6 +57,23 @@ def _discover(args: argparse.Namespace) -> int:
     return 0 if result.outcome is Outcome.DONE else 1
 
 
+def _record(args: argparse.Namespace) -> int:
+    from cua.artifact.recorder import AppCatalog, RecordingError, record_run
+    from cua.artifact.store import ArtifactStore, StoreError
+    from cua.policy.gate import PolicyConfig
+
+    try:
+        artifact = record_run(args.run_dir, capability_id=args.id, name=args.name, version=args.version,
+                              catalog=AppCatalog.load(args.app))
+        path = ArtifactStore(args.artifacts_dir).save(artifact, PolicyConfig.load(args.policy).redactor(),
+                                                       overwrite=args.overwrite)
+    except (RecordingError, StoreError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"wrote {path} and {path.with_suffix('.md')} ({len(artifact.steps)} steps, status {artifact.capability.status})")
+    return 0
+
+
 def _serve_mock(args: argparse.Namespace) -> int:
     from mock_app import create_app
 
@@ -92,6 +109,17 @@ def main(argv: list[str] | None = None) -> int:
     disc.add_argument("--policy", type=Path, default=Path("config/policy.yaml"))
     disc.add_argument("--runs-dir", type=Path, default=Path("runs"))
     disc.set_defaults(func=_discover)
+
+    rec = sub.add_parser("record", help="Turn a successful discovery run into a draft capability artifact")
+    rec.add_argument("run_dir", type=Path)
+    rec.add_argument("--id", required=True, help="capability id, e.g. lookup-savings-balance")
+    rec.add_argument("--name", required=True, help='e.g. "Look up savings balance"')
+    rec.add_argument("--version", default="1.0.0")
+    rec.add_argument("--app", type=Path, default=Path("config/apps/ffcu_member_services.yaml"))
+    rec.add_argument("--policy", type=Path, default=Path("config/policy.yaml"))
+    rec.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
+    rec.add_argument("--overwrite", action="store_true")
+    rec.set_defaults(func=_record)
 
     args = parser.parse_args(argv)
     return args.func(args)

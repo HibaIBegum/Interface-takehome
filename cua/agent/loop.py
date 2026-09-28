@@ -9,14 +9,13 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
-
 from pydantic import BaseModel, Field, ValidationError
 
+from cua.observability.records import ObservationSummary, ParamRecord, RunManifest, StepRecord
 from cua.observability.runlog import RunLog
-from cua.policy.gate import PolicyDecision, PolicyGate
+from cua.policy.gate import PolicyGate
 from cua.surface.base import (
-    Action, ActionResult, Click, ElementInfo, Extract, Fill, Navigate, Observation, Select, Surface, target_for,
+    Action, Click, ElementInfo, Extract, Fill, Navigate, Observation, Select, Surface, target_for,
 )
 
 from .llm import Decider, LLMError
@@ -47,40 +46,6 @@ class Outcome(str, Enum):
     TIMEOUT = "timeout"
     ENTRY_FAILED = "entry_failed"
     LLM_ERROR = "llm_error"
-
-
-class ObservationSummary(BaseModel):
-    url: str
-    frames: dict[str, str]
-    title: str
-    state_hash: str
-    element_count: int
-    screenshot: str | None
-
-    @classmethod
-    def of(cls, obs: Observation) -> ObservationSummary:
-        return cls(
-            url=obs.url, title=obs.title, state_hash=obs.state_hash, element_count=len(obs.elements),
-            frames={"/".join(f.path) or "top": f.url for f in obs.frames},
-            screenshot=obs.screenshot_path.name if obs.screenshot_path else None,
-        )
-
-
-class StepRecord(BaseModel):
-    """One line of steps.jsonl. `action` carries parameter references ({{name}}), never resolved values."""
-
-    step: int
-    at: str
-    observation: ObservationSummary | None = None
-    tool: str
-    tool_input: dict[str, Any]
-    reason: str
-    element: ElementInfo | None = None  # what the model pointed at; the recorder derives locators from it
-    action: dict[str, Any] | None = None
-    policy: PolicyDecision | None = None
-    result: ActionResult | None = None
-    error: str | None = None
-    llm: dict[str, Any] | None = None
 
 
 class DiscoveryResult(BaseModel):
@@ -195,6 +160,11 @@ class DiscoveryAgent:
                 return None
             return finish(outcome, f"{reason} (no human handoff available yet)", step)
 
+        self.log.write_json("run.json", RunManifest(
+            run_id=self.log.dir.name, goal=goal, entry_url=entry_url, started_at=_now(),
+            params=[ParamRecord(name=p.name, sensitive=p.sensitive, example=None if p.sensitive else p.value)
+                    for p in params],
+        ))
         entry = self.gate.execute(self.surface, Navigate(url=entry_url), current_url="")
         self.log.step(StepRecord(step=0, at=_now(), tool="navigate", tool_input={"url": entry_url},
                                  reason="entry URL", action=Navigate(url=entry_url).model_dump(mode="json"),

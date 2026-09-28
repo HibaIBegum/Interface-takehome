@@ -1,0 +1,92 @@
+# Known screens that mean "this did not go to plan" in First Fictional CU Member Services.
+# The recorder copies these into every artifact for this app; replay checks them in order
+# (most specific first) whenever a step's checkpoint is not met.
+#
+#   business_outcome  the system answered; the answer is not success (report it, don't retry)
+#   recoverable       transient; apply `recovery`, then retry (bounded)
+#   hard_failure      stop and escalate to a human
+
+app:
+  vendor_product: First Fictional CU Member Services Desk
+  app_version: "MSD/4.2.1"
+
+signatures:
+  - id: member-not-found
+    match: {kind: text_present, text: "No member found", frame_path: [main]}
+    classification: business_outcome
+    outcome_code: MEMBER_NOT_FOUND
+    message: No member exists with the given member ID.
+
+  - id: permission-denied
+    match: {kind: text_present, text: "Access Denied", frame_path: [main]}
+    classification: business_outcome
+    outcome_code: PERMISSION_DENIED
+    message: The signed-in user is not authorized to access this member record.
+
+  - id: insufficient-funds
+    match: {kind: text_present, text: "Insufficient funds", frame_path: [main]}
+    classification: business_outcome
+    outcome_code: INSUFFICIENT_FUNDS
+    message: The amount exceeds the available balance of the funding account.
+
+  - id: below-minimum-deposit
+    match: {kind: text_present, text: "Minimum opening deposit", frame_path: [main]}
+    classification: business_outcome
+    outcome_code: BELOW_MINIMUM_DEPOSIT
+    message: The initial deposit is below the minimum for this product.
+
+  - id: validation-error
+    match: {kind: text_present, text: "Please correct the errors below.", frame_path: [main]}
+    classification: business_outcome
+    outcome_code: INVALID_INPUT
+    message: The application rejected one or more input values.
+
+  - id: session-expired
+    match: {kind: text_present, text: "Your session has expired"}
+    classification: recoverable
+    outcome_code: SESSION_EXPIRED
+    message: The session timed out; sign in again and restart from the beginning.
+    recovery: {kind: restart, max_attempts: 1, allowed_on_irreversible: false}
+
+  - id: system-notice
+    match:
+      kind: all
+      conditions:
+        - {kind: text_present, text: "System Notice", frame_path: [main]}
+        - kind: element_visible
+          target:
+            description: System Notice OK button
+            candidates:
+              - candidate: {strategy: role_name, role: button, value: OK, frame_path: [main]}
+                why: the only button on the notice
+    classification: recoverable
+    outcome_code: INTERSTITIAL
+    message: An unexpected system notice covered the page.
+    recovery:
+      kind: dismiss
+      max_attempts: 3
+      allowed_on_irreversible: true
+      target:
+        description: System Notice OK button
+        candidates:
+          - candidate: {strategy: role_name, role: button, value: OK, frame_path: [main]}
+            why: the only button on the notice
+
+  - id: server-error
+    match: {kind: text_present, text: "Internal Server Error"}
+    classification: recoverable
+    outcome_code: SERVER_ERROR
+    message: The server returned an error page.
+    recovery: {kind: retry_step, max_attempts: 2, allowed_on_irreversible: false}
+
+  - id: request-expired
+    match: {kind: text_present, text: "Request Not Available", frame_path: [main]}
+    classification: hard_failure
+    outcome_code: REQUEST_EXPIRED
+    message: The pending request is no longer available; the flow must be restarted by a human.
+
+  - id: sign-on-failed
+    match: {kind: text_present, text: "Invalid User ID or Password"}
+    classification: hard_failure
+    outcome_code: AUTH_FAILED
+    message: The supplied credentials were rejected.
