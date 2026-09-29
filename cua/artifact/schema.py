@@ -65,10 +65,17 @@ class AnyOf(_Model):
 Condition = Annotated[Union[UrlMatches, ElementVisible, TextPresent, AllOf, AnyOf], Field(discriminator="kind")]
 
 
-def route_regex(route: str) -> re.Pattern[str]:
-    """'/app/member?m=:member_id' -> regex over path+query, each :name matching one value."""
+def route_regex(route: str, bound: dict[str, str] | None = None) -> re.Pattern[str]:
+    """'/app/member?m=:member_id' -> regex over path+query.
+
+    A `:name` found in `bound` must equal that value (so a checkpoint recorded for member_id checks
+    it is on *this* member's page); any other `:name` (e.g. `:id`) matches one arbitrary value.
+    """
+    bound = bound or {}
     parts = re.split(r"(:[a-z_][a-z0-9_]*)", route)
-    body = "".join(r"[^/?&#]+" if p.startswith(":") else re.escape(p) for p in parts)
+    body = "".join(
+        (re.escape(bound[p[1:]]) if p[1:] in bound else r"[^/?&#]+") if p.startswith(":") else re.escape(p)
+        for p in parts)
     return re.compile(f"^{body}$")
 
 
@@ -77,6 +84,19 @@ def iter_conditions(condition: Condition):
     if isinstance(condition, (AllOf, AnyOf)):
         for child in condition.conditions:
             yield from iter_conditions(child)
+
+
+def describe_condition(cond: Condition | None) -> str:
+    if cond is None:
+        return "-"
+    if isinstance(cond, UrlMatches):
+        return f"`{'/'.join(cond.frame_path) or 'top'}` at `{cond.route}`"
+    if isinstance(cond, TextPresent):
+        return f"text \"{cond.text}\""
+    if isinstance(cond, ElementVisible):
+        return f"{cond.target.description} visible"
+    joiner = " and " if isinstance(cond, AllOf) else " or "
+    return joiner.join(describe_condition(c) for c in cond.conditions)
 
 
 # ---------------------------------------------------------------- targets
@@ -153,10 +173,17 @@ class Step(_Model):
 
 
 class RecoveryAction(_Model):
-    kind: Literal["dismiss", "retry_step", "restart"]
+    """How replay gets back on track. Deliberately small: only moves that are safe without judgment.
+
+    dismiss:        click `target` (e.g. OK on a notice), then continue where we were.
+    reauthenticate: run the artifact's sign_in_steps again, then resume after the last verified
+                    checkpoint that still holds. Never re-runs a completed irreversible step.
+    """
+
+    kind: Literal["dismiss", "reauthenticate"]
     target: StepTarget | None = None      # dismiss: what to click
     max_attempts: int = Field(default=1, ge=1, le=5)
-    allowed_on_irreversible: bool = False  # retrying a commit step could duplicate it
+    allowed_on_irreversible: bool = False  # may this recovery run while an irreversible step is in flight?
 
     @model_validator(mode="after")
     def _shape(self) -> RecoveryAction:
@@ -200,12 +227,18 @@ class CapabilityArtifact(_Model):
     error_signatures: list[ErrorSignature]
     success_condition: Condition
     provenance: Provenance
+    sign_in_steps: list[str] = Field(default_factory=list)  # prefix of steps that establishes a session
 
     @model_validator(mode="after")
     def _consistent(self) -> CapabilityArtifact:
         steps = {s.id: s for s in self.steps}
         if len(steps) != len(self.steps):
             raise ValueError("step ids must be unique")
+        if self.sign_in_steps != [s.id for s in self.steps[:len(self.sign_in_steps)]]:
+            raise ValueError("sign_in_steps must be a prefix of steps")
+        if any(sig.recovery and sig.recovery.kind == "reauthenticate" for sig in self.error_signatures) \
+                and not self.sign_in_steps:
+            raise ValueError("a reauthenticate recovery needs sign_in_steps")
         inputs = {p.name: p for p in self.inputs}
         sensitive = {n for n, p in inputs.items() if p.sensitive}
         for step in self.steps:

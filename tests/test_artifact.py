@@ -119,7 +119,8 @@ def test_known_error_signatures_are_included(artifact):
     assert codes["PERMISSION_DENIED"] == "business_outcome"
     assert codes["SESSION_EXPIRED"] == "recoverable"
     assert codes["INTERSTITIAL"] == "recoverable"
-    assert codes["SERVER_ERROR"] == "recoverable"
+    assert codes["SERVER_ERROR"] == "hard_failure"
+    assert artifact.sign_in_steps == ["s01", "s02", "s03", "s04"]
 
 
 def test_route_normalization_and_templates():
@@ -178,7 +179,19 @@ def _mutate(artifact, fn):
     (lambda d: d["steps"][1].update(value_template=None), "needs a value_template"),
     (lambda d: d["steps"][2].update(id="s02"), "unique"),
     (lambda d: d.update(schema_version="2.0"), "schema_version"),
+    (lambda d: d.update(sign_in_steps=["s02"]), "prefix"),
+    (lambda d: d.update(sign_in_steps=[]), "needs sign_in_steps"),
 ])
 def test_schema_rejects_inconsistent_artifacts(artifact, breaks, message):
     with pytest.raises(ValidationError, match=message):
         CapabilityArtifact.model_validate(_mutate(artifact, breaks))
+
+
+def test_store_refuses_an_artifact_that_redaction_would_change(artifact, tmp_path):
+    """A literal account number typed into a field must become a (sensitive) input, not be silently rewritten."""
+    steps = list(artifact.steps)
+    steps[4] = steps[4].model_copy(update={"value_template": "000123456789"})
+    leaky = artifact.model_copy(update={"steps": steps})
+    with pytest.raises(StoreError, match=r"sensitive-looking data at \$\.steps\[4\]\.value_template"):
+        ArtifactStore(tmp_path).save(leaky, PolicyConfig.load().redactor())
+    assert not (tmp_path / artifact.capability.id).exists()

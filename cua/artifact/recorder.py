@@ -131,6 +131,13 @@ def build_candidates(el: ElementInfo) -> list[RankedCandidate]:
     return ranked
 
 
+def _output_type(example: str) -> str:
+    # The run log is redacted, so a balance arrives as "[REDACTED:money]" rather than "$5,230.17".
+    if example.startswith("$") or example == "[REDACTED:money]":
+        return "currency"
+    return "integer" if example.isdigit() else "string"
+
+
 def _describe(el: ElementInfo) -> str:
     if el.role == "cell":
         return f"'{el.label}'" + (f" / '{el.column}'" if el.column else "")
@@ -180,17 +187,30 @@ def _url_condition(routes: dict[str, str]) -> Condition | None:
 # ---------------------------------------------------------------- recording
 
 def load_run(run_dir: Path) -> tuple[RunManifest, list[StepRecord]]:
+    manifest, records, _ = load_run_with_events(run_dir)
+    return manifest, records
+
+
+def load_run_with_events(run_dir: Path) -> tuple[RunManifest, list[StepRecord], list[dict]]:
+    """steps.jsonl holds agent steps plus handoff events (lines with an "event" key)."""
     manifest = RunManifest.model_validate_json((run_dir / "run.json").read_text())
-    records = [StepRecord.model_validate_json(line) for line in (run_dir / "steps.jsonl").read_text().splitlines()]
+    records, events = [], []
+    for line in (run_dir / "steps.jsonl").read_text().splitlines():
+        data = json.loads(line)
+        if "event" in data:
+            events.append(data)
+        else:
+            records.append(StepRecord.model_validate(data))
     result = json.loads((run_dir / "result.json").read_text())
     if result.get("outcome") != "done":
         raise RecordingError(f"run {run_dir.name} did not succeed (outcome: {result.get('outcome')})")
-    return manifest, records
+    return manifest, records, events
 
 
 def record_run(run_dir: Path, *, capability_id: str, name: str, catalog: AppCatalog, version: str = "1.0.0",
                description: str | None = None) -> CapabilityArtifact:
-    manifest, records = load_run(run_dir)
+    manifest, records, events = load_run_with_events(run_dir)
+    human = [e for e in events if e.get("event") == "human_action" and e.get("kind") != "navigate"]
     examples = {p.example: p.name for p in manifest.params if p.example and not p.sensitive and len(p.example) > 1}
     recoverable = [s for s in catalog.signatures if s.classification == "recoverable"]
 
@@ -241,7 +261,7 @@ def record_run(run_dir: Path, *, capability_id: str, name: str, catalog: AppCata
             example = rec.result.extracted or ""
             outputs.append(OutputSpec(
                 name=output, source_step=step_id,
-                type="currency" if example.startswith("$") else ("integer" if example.isdigit() else "string"),
+                type=_output_type(example),
                 redact_in_logs=bool(_SENSITIVE_OUTPUT.search(f"{el.label} {el.column} {output}")),
             ))
         for field in re.findall(r"\{([a-z][a-z0-9_]*)\}", value_template or ""):
@@ -284,8 +304,23 @@ def record_run(run_dir: Path, *, capability_id: str, name: str, catalog: AppCata
             inputs.append(ParamSpec(name=p.name, pattern=pattern,
                                     description=f"{where.strip()} Pattern inferred from one example; review."))
 
+    # Sign-in = everything up to the first verified screen change after the last secret is typed.
+    secrets = {p.name for p in manifest.params if p.sensitive}
+    last_secret = max((i for i, s in enumerate(steps)
+                       if set(re.findall(r"\{([a-z][a-z0-9_]*)\}", s.value_template or "")) & secrets), default=None)
+    sign_in: list[str] = []
+    if last_secret is not None:
+        end = next((i for i in range(last_secret + 1, len(steps)) if steps[i].checkpoint is not None), None)
+        if end is not None:
+            sign_in = [s.id for s in steps[:end + 1]]
+
     models = sorted({r.llm["model"] for r in records if r.llm and r.llm.get("model")})
-    human = [s.id for s in steps if s.performed_by == "human"]
+    human_steps = [s.id for s in steps if s.performed_by == "human"]
+    handoff_note = ""
+    if human:
+        done = "; ".join(f"{a['kind']} {a.get('name') or a.get('label') or a.get('field_name')!r}" for a in human[:6])
+        handoff_note = (f"A human took over during discovery and performed {len(human)} action(s) that are "
+                        f"not steps of this artifact ({done}); review whether the flow still holds without them. ")
     kept = len(steps)
     artifact = CapabilityArtifact(
         capability=Capability(id=capability_id, name=name, version=version, status="draft",
@@ -298,12 +333,12 @@ def record_run(run_dir: Path, *, capability_id: str, name: str, catalog: AppCata
         steps=steps,
         error_signatures=catalog.signatures,
         success_condition=success,
+        sign_in_steps=sign_in,
         provenance=Provenance(
             discovery_run_id=manifest.run_id, models=models, recorded_at=datetime.now(timezone.utc),
-            human_steps=human,
+            human_steps=human_steps,
             note=(f"Recorded offline from run {manifest.run_id}: kept {kept} actions, dropped {dropped} "
-                  f"(failed, denied or incidental recovery). "
-                  + (f"Steps {', '.join(human)} were performed by a human. " if human else "No human steps. ")
+                  f"(failed, denied or incidental recovery). " + (handoff_note or "No human intervention. ")
                   + "Locator candidates are generated from the run's observations and verified at replay."),
         ),
     )

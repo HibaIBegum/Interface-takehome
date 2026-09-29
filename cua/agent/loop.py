@@ -25,6 +25,7 @@ _PARAM_REF = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 _EXTRACT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 STUCK_REPEATS = 3
 STUCK_FAILURES = 3
+_VERDICT_WORD = {"block": "BLOCKED", "deny": "DENIED"}
 
 
 class Param(BaseModel):
@@ -60,11 +61,12 @@ class ToolInputError(Exception):
     """The model's tool call can't be turned into an action (bad index, unknown parameter, ...)."""
 
 
-# Phase 6 replaces this with a real operator handoff. Returning True would mean "human fixed it, continue".
-HandoffHandler = Callable[[str], bool]
+# (trigger, reason) -> True if a human took over and handed back ("resume"), False to stop the run.
+# The CLI wires this to cua.handoff.control.HandoffSession.request.
+HandoffHandler = Callable[[str, str], bool]
 
 
-def no_handoff(reason: str) -> bool:
+def no_handoff(trigger: str, reason: str) -> bool:
     return False
 
 
@@ -156,16 +158,19 @@ class DiscoveryAgent:
 
         def escalate(outcome: Outcome, reason: str, step: int) -> DiscoveryResult | None:
             self.log.echo(f"   handoff requested: {reason}")
-            if self.handoff(reason):
+            trigger = "request_human" if outcome is Outcome.HUMAN_REQUESTED else "stuck"
+            if self.handoff(trigger, reason):
+                history.append(f"{step}. a human operator took over and handed control back; re-check the screen")
+                repeats.clear()  # the screen may have changed under us; don't carry old repeat counts
                 return None
-            return finish(outcome, f"{reason} (no human handoff available yet)", step)
+            return finish(outcome, f"{reason} (not resolved by a human)", step)
 
         self.log.write_json("run.json", RunManifest(
             run_id=self.log.dir.name, goal=goal, entry_url=entry_url, started_at=_now(),
             params=[ParamRecord(name=p.name, sensitive=p.sensitive, example=None if p.sensitive else p.value)
                     for p in params],
         ))
-        entry = self.gate.execute(self.surface, Navigate(url=entry_url), current_url="")
+        entry = self.gate.execute(self.surface, Navigate(url=entry_url), context=f"discovery run {self.log.dir.name}")
         self.log.step(StepRecord(step=0, at=_now(), tool="navigate", tool_input={"url": entry_url},
                                  reason="entry URL", action=Navigate(url=entry_url).model_dump(mode="json"),
                                  policy=entry.decision, result=entry.result))
@@ -227,7 +232,9 @@ class DiscoveryAgent:
                         if (stopped := escalate(Outcome.STUCK, record.error, step)) is not None:
                             return stopped
                         continue
-                    gated = self.gate.execute(self.surface, action, obs.url)
+                    # Discovery never auto-executes an irreversible action: the approver must be a human.
+                    gated = self.gate.execute(self.surface, action, require_human=True,
+                                              context=f"discovery run {self.log.dir.name}, step {step}")
                     record.policy, record.result = gated.decision, gated.result
                     ok = gated.result is not None and gated.result.ok
                     if ok and isinstance(action, Extract):
@@ -255,7 +262,7 @@ class DiscoveryAgent:
         if record.error is not None:
             status = f"REJECTED: {record.error}"
         elif record.result is None:
-            status = f"DENIED by policy: {record.policy.reason}"
+            status = f"{_VERDICT_WORD[record.policy.verdict.value]} by policy: {record.policy.reason}"
         elif record.result.ok:
             status = "ok" + (f", read {record.result.extracted!r}" if record.result.extracted is not None else "")
         else:

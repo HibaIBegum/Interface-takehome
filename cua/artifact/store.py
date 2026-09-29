@@ -7,13 +7,25 @@ from pathlib import Path
 
 from cua.policy.redact import Redactor
 
-from .schema import AllOf, CapabilityArtifact, Condition, ElementVisible, TextPresent, UrlMatches
+from .schema import CapabilityArtifact, describe_condition
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2] / "artifacts"
 
 
 class StoreError(Exception):
     pass
+
+
+def _first_difference(a, b, path: str = "$") -> str:
+    if isinstance(a, dict) and isinstance(b, dict):
+        for key in a:
+            if a[key] != b.get(key):
+                return _first_difference(a[key], b.get(key), f"{path}.{key}")
+    if isinstance(a, list) and isinstance(b, list):
+        for i, (x, y) in enumerate(zip(a, b)):
+            if x != y:
+                return _first_difference(x, y, f"{path}[{i}]")
+    return path
 
 
 class ArtifactStore:
@@ -28,7 +40,13 @@ class ArtifactStore:
         json_path = self.path(artifact.capability.id, artifact.capability.version.split(".")[0])
         if json_path.exists() and not overwrite:
             raise StoreError(f"{json_path} already exists; bump the major version or pass overwrite")
-        safe = CapabilityArtifact.model_validate(redactor.obj(artifact.model_dump(mode="json")))
+        raw = artifact.model_dump(mode="json")
+        redacted = redactor.obj(raw)
+        if redacted != raw:
+            # Silently rewriting an artifact would change what replay types or checks. Refuse instead.
+            raise StoreError(f"artifact contains sensitive-looking data at {_first_difference(raw, redacted)}; "
+                             "turn it into a (sensitive) input or remove it")
+        safe = CapabilityArtifact.model_validate(redacted)
         json_path.parent.mkdir(parents=True, exist_ok=True)
         json_path.write_text(safe.model_dump_json(indent=2) + "\n", encoding="utf-8")
         json_path.with_suffix(".md").write_text(redactor.text(render_markdown(safe)), encoding="utf-8")
@@ -44,19 +62,6 @@ class ArtifactStore:
             major = versions[-1]
         return CapabilityArtifact.model_validate_json(self.path(capability_id, major).read_text())
 
-
-
-def _cond_text(cond: Condition | None) -> str:
-    if cond is None:
-        return "-"
-    if isinstance(cond, UrlMatches):
-        return f"`{'/'.join(cond.frame_path) or 'top'}` at `{cond.route}`"
-    if isinstance(cond, TextPresent):
-        return f"text \"{cond.text}\""
-    if isinstance(cond, ElementVisible):
-        return f"{cond.target.description} visible"
-    joiner = " and " if isinstance(cond, AllOf) else " or "
-    return joiner.join(_cond_text(c) for c in cond.conditions)
 
 
 def render_markdown(a: CapabilityArtifact) -> str:
@@ -80,11 +85,11 @@ def render_markdown(a: CapabilityArtifact) -> str:
             cand = s.target.candidates[0].candidate
             best = f"{cand.strategy.value} `{cand.value}` ({len(s.target.candidates)})"
         who = " (human)" if s.performed_by == "human" else ""
-        lines.append(f"| {s.id} | {s.intent}{who} | {s.risk} | {best} | {_cond_text(s.checkpoint)} |")
-    lines += ["", f"**Success when:** {_cond_text(a.success_condition)}", "",
+        lines.append(f"| {s.id} | {s.intent}{who} | {s.risk} | {best} | {describe_condition(s.checkpoint)} |")
+    lines += ["", f"**Success when:** {describe_condition(a.success_condition)}", "",
               "## Error signatures", "", "| Outcome | Class | Matches | Recovery |", "|---|---|---|---|"]
     for sig in a.error_signatures:
         rec = f"{sig.recovery.kind} (max {sig.recovery.max_attempts})" if sig.recovery else "-"
-        lines.append(f"| `{sig.outcome_code}` | {sig.classification} | {_cond_text(sig.match)} | {rec} |")
+        lines.append(f"| `{sig.outcome_code}` | {sig.classification} | {describe_condition(sig.match)} | {rec} |")
     lines += ["", "## Provenance", "", a.provenance.note, ""]
     return "\n".join(lines)

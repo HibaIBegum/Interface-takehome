@@ -3,8 +3,11 @@
 # (most specific first) whenever a step's checkpoint is not met.
 #
 #   business_outcome  the system answered; the answer is not success (report it, don't retry)
-#   recoverable       transient; apply `recovery`, then retry (bounded)
+#   recoverable       transient; apply `recovery` (dismiss or reauthenticate), bounded
 #   hard_failure      stop and escalate to a human
+#
+# A server error is a hard failure on purpose: retrying needs the previous screen back, which a
+# click-driven UI can't restore in general, and the error may have followed a commit.
 
 app:
   vendor_product: First Fictional CU Member Services Desk
@@ -45,8 +48,8 @@ signatures:
     match: {kind: text_present, text: "Your session has expired"}
     classification: recoverable
     outcome_code: SESSION_EXPIRED
-    message: The session timed out; sign in again and restart from the beginning.
-    recovery: {kind: restart, max_attempts: 1, allowed_on_irreversible: false}
+    message: The session timed out; sign in again and resume from the last verified checkpoint.
+    recovery: {kind: reauthenticate, max_attempts: 1, allowed_on_irreversible: false}
 
   - id: system-notice
     match:
@@ -74,10 +77,9 @@ signatures:
 
   - id: server-error
     match: {kind: text_present, text: "Internal Server Error"}
-    classification: recoverable
+    classification: hard_failure
     outcome_code: SERVER_ERROR
-    message: The server returned an error page.
-    recovery: {kind: retry_step, max_attempts: 2, allowed_on_irreversible: false}
+    message: The server returned an error page; whether the last action took effect is unknown.
 
   - id: request-expired
     match: {kind: text_present, text: "Request Not Available", frame_path: [main]}

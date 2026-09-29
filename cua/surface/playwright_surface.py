@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,11 +29,13 @@ from .base import (
     TargetResolutionError, WaitFor,
 )
 
+_CAPTURE_JS = Path(__file__).resolve().parents[1] / "handoff" / "capture.js"
+
 INTERACTIVE_ROLES = (
     "button", "link", "textbox", "searchbox", "combobox", "listbox",
     "checkbox", "radio", "spinbutton", "switch", "tab", "menuitem",
 )
-_TEXT_PER_FRAME = 1000
+_TEXT_PER_FRAME = 2000
 _OBSERVE_ATTEMPTS = 3
 
 # Form controls that can carry a label (buttons are named by their own text instead).
@@ -119,6 +121,18 @@ _READ_JS = "el => ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) ? el.valu
 _SNAPSHOT_NAME = re.compile(r'^- [\w-]+(?: "((?:[^"\\]|\\.)*)")?')
 
 
+def _live_children(frame: Frame) -> list[Frame]:
+    # Playwright keeps detached frames in child_frames after a frameset is re-rendered (seen after
+    # signing in a second time); they come first and would shadow the live frame of the same name.
+    return [f for f in frame.child_frames if not f.is_detached()]
+
+
+def _is_navigation_race(exc: Exception) -> bool:
+    """The page or a frame navigated (or was removed) while we were reading it."""
+    text = str(exc)
+    return "Execution context was destroyed" in text or "detached" in text
+
+
 class FrameNotFound(Exception):
     pass
 
@@ -200,13 +214,13 @@ class PlaywrightSurface:
     def _walk_frames(self, frame: Frame | None = None, path: tuple[str, ...] = ()) -> Iterator[tuple[Frame, FramePath]]:
         frame = frame or self.page.main_frame
         yield frame, list(path)
-        for i, child in enumerate(frame.child_frames):
+        for i, child in enumerate(_live_children(frame)):
             yield from self._walk_frames(child, path + (child.name or f"[{i}]",))
 
     def _frame(self, path: FramePath) -> Frame:
         frame = self.page.main_frame
         for seg in path:
-            kids = frame.child_frames
+            kids = _live_children(frame)
             if m := re.fullmatch(r"\[(\d+)\]", seg):
                 idx = int(m.group(1))
                 found = kids[idx] if idx < len(kids) else None
@@ -283,6 +297,9 @@ class PlaywrightSurface:
             functools.reduce(Locator.or_, locs).first.wait_for(state="visible", timeout=remaining)
         except PlaywrightTimeoutError:
             pass
+        except PlaywrightError as exc:
+            if not _is_navigation_race(exc):
+                raise
 
     def resolve(self, target: Target, timeout_ms: float | None = None) -> Resolved:
         """First candidate with exactly one visible match wins. Raises TargetResolutionError otherwise."""
@@ -297,6 +314,10 @@ class PlaywrightSurface:
                 count = loc.count()
             except FrameNotFound:
                 count = 0
+            except PlaywrightError as exc:
+                if not _is_navigation_race(exc):
+                    raise
+                count = 0  # the frame navigated away or was removed mid-count: nothing to match right now
             attempts.append(CandidateAttempt(index=i, strategy=c.strategy, matches=count))
             if count == 1:
                 return Resolved(Resolution(matched_index=i, strategy=c.strategy, attempts=attempts), locator=loc)
@@ -312,10 +333,10 @@ class PlaywrightSurface:
                 continue
             for i, info in enumerate(loc.evaluate_all(_ELEMENT_JS)):
                 item = loc.nth(i)
-                box = item.bounding_box(timeout=1000)
+                box = item.bounding_box(timeout=self.timeout_ms)
                 found.append(((frame_order, info["order"]), {
                     "role": role,
-                    "name": _snapshot_name(item.aria_snapshot(timeout=1000)),
+                    "name": _snapshot_name(item.aria_snapshot(timeout=self.timeout_ms)),
                     "label": info["label"],
                     "nearby_text": info["near"],
                     "frame_path": path,
@@ -328,22 +349,39 @@ class PlaywrightSurface:
         for i, info in enumerate(cells.evaluate_all(_CELL_JS)):
             if not info["keep"]:
                 continue
-            box = cells.nth(i).bounding_box(timeout=1000)
+            box = cells.nth(i).bounding_box(timeout=self.timeout_ms)
             found.append(((frame_order, info["order"]), {
                 "role": "cell", "name": "", "label": info["label"], "column": info["column"], "text": info["text"],
                 "nearby_text": info["near"], "frame_path": path, "bbox": BBox(**box) if box else None,
             }))
         return found
 
+    def _settle(self) -> None:
+        """Give an in-flight load up to the surface timeout, then observe whatever is there.
+
+        A slow page is not an error at this layer: callers decide (replay backs off and re-checks).
+        """
+        try:
+            self.page.wait_for_load_state("load", timeout=self.timeout_ms)
+        except PlaywrightTimeoutError:
+            pass
+
     def _observe_once(self, screenshot_path: Path | None) -> Observation:
-        self.page.wait_for_load_state("load")
+        self._settle()
         frames: list[FrameInfo] = []
         raw: list[tuple[tuple[int, int], dict]] = []
         texts: list[str] = []
         for order, (frame, path) in enumerate(self._walk_frames()):
-            frames.append(FrameInfo(path=path, url=frame.url, title=frame.title()))
-            raw.extend(self._frame_elements(frame, path, order))
-            text = _clean(frame.evaluate(_BODY_TEXT_JS))
+            try:
+                info = FrameInfo(path=path, url=frame.url, title=frame.title())
+                found = self._frame_elements(frame, path, order)
+                text = _clean(frame.evaluate(_BODY_TEXT_JS))
+            except PlaywrightError as exc:
+                if not path or not _is_navigation_race(exc):
+                    raise  # the top document racing is retried by observe()
+                continue  # a child frame detached mid-read: it is no longer part of the screen
+            frames.append(info)
+            raw.extend(found)
             if text:
                 texts.append(f"[{'/'.join(path) or 'top'}] {text[:_TEXT_PER_FRAME]}")
         raw.sort(key=lambda item: item[0])
@@ -365,10 +403,9 @@ class PlaywrightSurface:
             try:
                 return self._observe_once(screenshot_path)
             except PlaywrightError as exc:
-                racing = "Execution context was destroyed" in str(exc) or "detached" in str(exc)
-                if not racing or attempt == _OBSERVE_ATTEMPTS - 1:
+                if not _is_navigation_race(exc) or attempt == _OBSERVE_ATTEMPTS - 1:
                     raise
-                self.page.wait_for_load_state("load")
+                self._settle()
         raise AssertionError("unreachable")
 
     # ------------------------------------------------------------ screenshot / extract
@@ -389,6 +426,79 @@ class PlaywrightSurface:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.page.screenshot(path=str(path), mask=self._mask_locators(), mask_color="#000000")
         return path
+
+    def locate(self, target: Target, timeout_ms: float = 0) -> Resolution:
+        """Resolution only: does the target resolve uniquely right now (or within timeout_ms)?"""
+        try:
+            return self.resolve(target, timeout_ms=timeout_ms).resolution
+        except TargetResolutionError as exc:
+            return exc.resolution
+
+    def current_url(self) -> str:
+        return self.page.url
+
+    def frame_url(self, frame_path: FramePath) -> str | None:
+        try:
+            return self._frame(frame_path).url
+        except FrameNotFound:
+            return None
+
+    def wait_for_navigation(self, timeout_ms: float) -> bool:
+        """Explicit event wait: True if any frame navigated within timeout_ms."""
+        try:
+            self.page.wait_for_event("framenavigated", timeout=max(timeout_ms, 1))
+            return True
+        except PlaywrightTimeoutError:
+            return False
+
+    def debug_snapshot(self) -> dict[str, str]:
+        aria, dom = [], []
+        for frame, path in self._walk_frames():
+            name = "/".join(path) or "top"
+            try:
+                aria.append(f"## frame {name} ({frame.url})\n" + frame.locator(":root").aria_snapshot(timeout=2000))
+                dom.append(f"<!-- frame {name} ({frame.url}) -->\n" + frame.content())
+            except PlaywrightError as exc:
+                aria.append(f"## frame {name}: unavailable ({_error_text(exc)})")
+        return {"accessibility": "\n\n".join(aria), "dom": "\n\n".join(dom)}
+
+    def _path_of(self, frame: Frame) -> FramePath:
+        path: list[str] = []
+        while frame.parent_frame is not None:
+            parent = frame.parent_frame
+            siblings = _live_children(parent)
+            path.append(frame.name or f"[{siblings.index(frame) if frame in siblings else 0}]")
+            frame = parent
+        return list(reversed(path))
+
+    def enable_capture(self, callback: Callable[[FramePath, dict], None]) -> None:
+        """Report DOM clicks/changes (via capture.js in every frame) and frame navigations to `callback`.
+
+        Events are delivered whenever Python is inside a Playwright call; use pump_events while waiting.
+        """
+        script = _CAPTURE_JS.read_text()
+        context = self.page.context
+        context.expose_binding("__cuaCapture", lambda source, payload: callback(self._path_of(source["frame"]),
+                                                                                 payload))
+        context.add_init_script(script=script)
+        for frame in self.page.frames:  # init scripts only reach documents loaded from now on
+            try:
+                frame.evaluate(script)
+            except PlaywrightError:
+                pass
+        self.page.on("framenavigated", lambda frame: callback(
+            self._path_of(frame), {"kind": "navigate", "url": frame.url, "at": time.time() * 1000}))
+
+    def flush_capture(self) -> None:
+        for frame, _ in self._walk_frames():
+            try:
+                frame.evaluate("() => window.__cuaFlush && window.__cuaFlush()")
+            except PlaywrightError:
+                pass
+
+    def pump_events(self, ms: float) -> None:
+        """Let Playwright deliver pending browser events for up to `ms` (used while a human has control)."""
+        self.page.wait_for_timeout(ms)
 
     def extract(self, target: Target) -> str:
         resolved = self.resolve(target)

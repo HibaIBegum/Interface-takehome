@@ -1,19 +1,46 @@
-# Safety policy. Every action from the agent, replay or recovery is checked against this
-# before it reaches the UI, and every log line / file is redacted with it before it is written.
+# Safety policy. Every action from the agent, replay or recovery passes PolicyGate.execute(), the
+# single chokepoint, before it reaches the UI. Everything written to disk or stdout is redacted
+# with the patterns below first.
 
-# Actions are only allowed while the page is on, or navigating to, one of these hosts.
-allowed_hosts:
-  - 127.0.0.1
-  - localhost
+# --- allowlist ------------------------------------------------------------------------------
+# An action is allowed only when the frame it happens in (and the top-level page) is on an
+# allowed origin AND an allowed route. Patterns use shell-style wildcards.
+allowed_origins:
+  - "http://127.0.0.1:*"
+  - "http://localhost:*"
+allowed_routes:          # URL paths (query ignored); the mock's /__faults and /__reset are not here
+  - /login
+  - /logout
+  - /desk
+  - /hdr
+  - /app/*
+allowed_actions: [click, fill, select, press, navigate, wait_for, extract]
 
-# Clicking a control whose name or label contains one of these words commits a change.
-# Commit actions need approval (see commit_requires_approval). Pressing Enter counts as commit.
+# --- irreversible actions --------------------------------------------------------------------
+# Explicit markers first: this control, on this route, commits a change in the system of record.
+irreversible_markers:
+  - {route: /app/subacct/review, action: click, target: Submit}
+# Fallback for screens nobody has marked yet: a click on a control whose name contains one of
+# these words, or pressing Enter, is treated as irreversible too.
 commit_keywords: [submit, confirm, transfer, delete, approve, pay, post, send, remove]
-commit_requires_approval: true
 
-# Text matching these patterns is replaced with [REDACTED:<name>] in logs and artifacts.
+# --- redaction -------------------------------------------------------------------------------
+# Applied, in this order, to logs, artifacts, evidence, intervention requests and captured human
+# actions. Sensitive params are redacted by value on top of these.
 redact_patterns:
   ssn: '\b\d{3}-\d{2}-\d{4}\b'
+  ssn_masked: '\*{3}-\*{2}-\d{4}'
+  email: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+  phone: '(?<![\w-])(?:\+?1[-. ]?)?\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b'
+  api_key: '\bsk-[A-Za-z0-9_-]{16,}'
+  bearer_token: '(?i)\bbearer\s+[A-Za-z0-9._~+/-]{16,}=*'
+  jwt: '\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
+  secret_hex: '\b[0-9a-fA-F]{32,}\b'
+  account_number: '\b\d{9,17}\b'
+  money: '\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\$\s?\d+(?:\.\d{2})?'
+  password_assignment: '(?i)\b(?:password|passwd|pwd|secret|token)\s*[=:]\s*\S+'
+# Values stored under these keys (anywhere in a logged structure) are redacted whole.
+sensitive_keys: [password, passwd, pwd, secret, token, api_key, authorization]
 
 # Regions blacked out in every screenshot (password inputs are always masked).
 screenshot_mask:

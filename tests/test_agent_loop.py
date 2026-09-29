@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from conftest import MOCK_PASSWORD, MOCK_USER
+from conftest import MOCK_PASSWORD, MOCK_USER, RecordingApprover
 from cua.agent.llm import LLMDecision, LLMError
 from cua.agent.loop import DiscoveryAgent, Limits, Outcome, Param
 from cua.observability.runlog import RunLog
@@ -74,6 +74,7 @@ def run_agent(surface, mock_server, tmp_path):
     policy = PolicyConfig.load()
 
     def run(script, *, limits=Limits(max_steps=20, timeout_s=60), approver=None, decider=None):
+        approver = approver or RecordingApprover(False, human=False)
         decider = decider or ScriptedDecider(script)
         log = RunLog(tmp_path / "run", policy.redactor({"password": MOCK_PASSWORD, "username": MOCK_USER}), echo=False)
         agent = DiscoveryAgent(surface=surface, gate=PolicyGate(policy, approver=approver, base_url=mock_server),
@@ -99,7 +100,7 @@ def test_reads_savings_balance_and_logs_every_step(run_agent):
     assert all(s["policy"]["verdict"] == "allow" for s in steps[:-1])
     assert steps[4]["action"]["value"] == "{{member_id}}"          # logged by reference, not value
     assert steps[6]["action"]["target"]["candidates"][0]["column"] == "Balance"
-    assert steps[6]["element"]["text"] == "$5,230.17"
+    assert steps[6]["element"]["text"] == "[REDACTED:money]"          # balances never reach the log
     assert (run_dir / "step_001.png").exists() and (run_dir / "result.json").exists()
 
 
@@ -126,8 +127,8 @@ def test_commit_action_is_denied_without_approval(run_agent):
     ]
     result, steps, _, _ = run_agent(script)
     submit = steps[-2]
-    assert submit["policy"] == {"verdict": "deny", "risk": "commit", "approved": False,
-                                "reason": "commit action requires approval and no approver is configured"}
+    assert (submit["policy"]["verdict"], submit["policy"]["risk"]) == ("deny", "commit")
+    assert "not approved" in submit["policy"]["reason"]
     assert submit["result"] is None
     assert result.outcome is Outcome.HUMAN_REQUESTED
 
@@ -144,8 +145,8 @@ def test_commit_action_runs_when_approved(run_agent):
         extract("reference", r"cell row 'Reference Number'"),
         call("done", summary="opened"),
     ]
-    result, steps, _, _ = run_agent(script, approver=lambda action, risk: True)
-    assert steps[-3]["policy"]["approved"] is True
+    result, steps, _, _ = run_agent(script, approver=RecordingApprover(True))
+    assert steps[-3]["policy"]["approval"]["by_human"] is True
     assert result.extracted["reference"].startswith("SA-")
 
 
@@ -171,7 +172,8 @@ def test_unknown_parameter_and_off_allowlist_navigation_are_rejected(run_agent):
     ]
     result, steps, _, _ = run_agent(script)
     assert "unknown parameter {{account_number}}" in steps[1]["error"]
-    assert steps[2]["policy"]["verdict"] == "deny" and steps[2]["result"] is None
+    assert steps[2]["policy"]["verdict"] == "block" and steps[2]["result"] is None
+    assert "origin https://example.com is not allowlisted" in steps[2]["policy"]["reason"]
     assert result.outcome is Outcome.DONE
 
 
@@ -190,3 +192,23 @@ def test_llm_failure_ends_the_run(run_agent):
     result, steps, _, _ = run_agent(None, decider=Broken())
     assert result.outcome is Outcome.LLM_ERROR
     assert steps[-1]["error"].startswith("LLM unreachable")
+
+
+def test_discovery_never_auto_executes_an_irreversible_action(run_agent):
+    """An approver that says yes but is not a human does not count in discovery."""
+    script = LOGIN + LOOKUP + [
+        click(r"button 'Open Sub-Account'"),
+        lambda s: ("select", {"element_index": index_of(s, r"label='Sub-Account Type'"), "option": "Share Savings",
+                              "reason": "type"}),
+        fill(r"label='Nickname'", "Test"),
+        fill(r"label='Initial Deposit \(\$\)'", "10.00"),
+        click(r"button 'Continue'"),
+        click(r"button 'Submit'"),
+        call("request_human", reason="submit was not approved"),
+    ]
+    auto = RecordingApprover(True, human=False)
+    result, steps, _, _ = run_agent(script, approver=auto)
+    submit = steps[-2]
+    assert submit["policy"]["verdict"] == "deny" and "needs a human decision" in submit["policy"]["reason"]
+    assert submit["result"] is None and len(auto.requests) == 1
+    assert auto.requests[0].reason == "marked irreversible: Submit on /app/subacct/review"

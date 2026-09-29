@@ -44,3 +44,15 @@ def test_only_the_policy_gate_calls_surface_act():
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "act":
                 offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
     assert offenders == [], f"Surface.act() called outside the policy gate: {offenders}"
+
+
+def test_replay_source_never_imports_the_agent_or_llm_sdk():
+    for path in (ROOT / "cua" / "replay").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            for name in names:
+                assert not name.startswith(("cua.agent", "anthropic")), f"{path.name} imports {name}"

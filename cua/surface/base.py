@@ -6,6 +6,7 @@ Agent, recorder and replay only ever see these types. Anything that can drive a 
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, Union
@@ -238,3 +239,22 @@ class Surface(Protocol):
     def extract(self, target: Target) -> str: ...
 
     def screenshot(self, path: Path) -> Path: ...
+
+    # Read-only queries used by replay to check conditions without acting.
+    def locate(self, target: Target, timeout_ms: float = 0) -> Resolution: ...
+
+    def current_url(self) -> str: ...
+
+    def frame_url(self, frame_path: FramePath) -> str | None: ...  # None if that frame does not exist
+
+    def wait_for_navigation(self, timeout_ms: float) -> bool: ...
+
+    def debug_snapshot(self) -> dict[str, str]: ...  # {"accessibility": ..., "dom": ...}, unredacted
+
+    # Human handoff: report what a person does in the same window, and keep delivering those
+    # reports while automation is paused.
+    def enable_capture(self, callback: Callable[[FramePath, dict], None]) -> None: ...
+
+    def pump_events(self, ms: float) -> None: ...
+
+    def flush_capture(self) -> None: ...  # report in-progress edits (e.g. a field still focused)
