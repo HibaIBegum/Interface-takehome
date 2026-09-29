@@ -1,0 +1,8 @@
+{
+  "status": "success",
+  "outputs": {
+    "savings_balance": "[REDACTED:money]"
+  },
+  "recoveries": [],
+  "run_dir": "runs/demo-20260929T124521/03-replay-success"
+}

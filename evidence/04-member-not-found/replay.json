@@ -1,0 +1,9 @@
+{
+  "capability": "lookup-savings-balance",
+  "version": "1.0.0",
+  "params": {
+    "member_id": "999999",
+    "username": "[secret]",
+    "password": "[REDACTED:password]"
+  }
+}

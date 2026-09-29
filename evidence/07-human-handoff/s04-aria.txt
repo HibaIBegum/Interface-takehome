@@ -1,0 +1,26 @@
+## frame top (http://127.0.0.1:5066/desk)
+- document:
+  - iframe
+  - iframe
+
+## frame hdr (http://127.0.0.1:5066/hdr)
+- document:
+  - table:
+    - rowgroup:
+      - 'row "FIRST FICTIONAL CREDIT UNION - Member Services Desk User: [REDACTED:username] | Member Search | Sign Off"':
+        - cell "FIRST FICTIONAL CREDIT UNION - Member Services Desk"
+        - 'cell "User: [REDACTED:username] | Member Search | Sign Off"':
+          - text: "User: [REDACTED:username] |"
+          - link "Member Search":
+            - /url: /app/search
+          - text: "|"
+          - link "Sign Off":
+            - /url: /logout
+
+## frame main (http://127.0.0.1:5066/app/search)
+- document:
+  - heading "Internal Server Error" [level=2]
+  - paragraph: The server encountered an internal error and was unable to complete your request.
+  - paragraph: "Error reference: ERR-0x01F4. Please contact the Help Desk at ext. 4400."
+  - separator
+  - text: MSD/4.2.1

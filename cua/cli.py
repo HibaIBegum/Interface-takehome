@@ -42,7 +42,7 @@ def _discover(args: argparse.Namespace) -> int:
 
     policy = PolicyConfig.load(args.policy)
     redactor = policy.redactor({p.name: p.value for p in params if p.sensitive})
-    log = RunLog(new_run_dir(args.runs_dir, args.goal), redactor)
+    log = RunLog(args.run_dir or new_run_dir(args.runs_dir, args.goal), redactor)
     try:
         decider = ClaudeDecider()
     except LLMError as exc:
@@ -109,7 +109,7 @@ def _replay(args: argparse.Namespace) -> int:
 
     policy = PolicyConfig.load(args.policy)
     redactor = policy.redactor(secrets)
-    log = RunLog(new_run_dir(args.runs_dir, f"replay-{artifact.capability.id}"), redactor)
+    log = RunLog(args.run_dir or new_run_dir(args.runs_dir, f"replay-{artifact.capability.id}"), redactor)
     from cua.handoff.control import HandoffSession
     from cua.replay.engine import approved_artifact_approver
 
@@ -124,6 +124,27 @@ def _replay(args: argparse.Namespace) -> int:
                         config=ReplayConfig(allow_draft=args.allow_draft))
     print(redactor.text(result.model_dump_json(indent=2)))
     return 0 if isinstance(result, Success) else 1
+
+
+def _approve(args: argparse.Namespace) -> int:
+    """Mark a reviewed draft as approved. Approval is what lets replay run its irreversible steps."""
+    from cua.artifact.store import ArtifactStore, StoreError
+    from cua.policy.gate import PolicyConfig
+
+    store = ArtifactStore(args.artifacts_dir)
+    try:
+        artifact = store.load(args.capability, args.major)
+    except (StoreError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    cap = artifact.capability
+    if cap.status == "approved":
+        print(f"{cap.id} v{cap.version} is already approved")
+        return 0
+    approved = artifact.model_copy(update={"capability": cap.model_copy(update={"status": "approved"})})
+    path = store.save(approved, PolicyConfig.load(args.policy).redactor(), overwrite=True)
+    print(f"approved {cap.id} v{cap.version} -> {path}")
+    return 0
 
 
 def _serve_mock(args: argparse.Namespace) -> int:
@@ -159,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     disc.add_argument("--no-screenshots", action="store_true", help="do not send screenshots to the LLM")
     disc.add_argument("--policy", type=Path, default=Path("config/policy.yaml"))
     disc.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    disc.add_argument("--run-dir", type=Path, default=None, help="exact output folder (default: a new one in --runs-dir)")
     disc.set_defaults(func=_discover)
 
     rec = sub.add_parser("record", help="Turn a successful discovery run into a draft capability artifact")
@@ -183,7 +205,15 @@ def main(argv: list[str] | None = None) -> int:
     rep.add_argument("--policy", type=Path, default=Path("config/policy.yaml"))
     rep.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
     rep.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    rep.add_argument("--run-dir", type=Path, default=None, help="exact output folder (default: a new one in --runs-dir)")
     rep.set_defaults(func=_replay)
+
+    appr = sub.add_parser("approve", help="Mark a reviewed draft artifact as approved")
+    appr.add_argument("capability")
+    appr.add_argument("--major", type=int, default=None)
+    appr.add_argument("--policy", type=Path, default=Path("config/policy.yaml"))
+    appr.add_argument("--artifacts-dir", type=Path, default=Path("artifacts"))
+    appr.set_defaults(func=_approve)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -1,0 +1,16 @@
+{
+  "status": "failure",
+  "kind": "hard_failure",
+  "step_id": "s04",
+  "code": "SERVER_ERROR",
+  "message": "The server returned an error page; whether the last action took effect is unknown. (operator aborted the handoff)",
+  "expected": "`top` at `/desk` and `hdr` at `/hdr` and `main` at `/app/search`",
+  "observed": "frames: top=/desk, hdr=/hdr, main=/app/search; text: [hdr] FIRST FICTIONAL CREDIT UNION - Member Services Desk User: [REDACTED:username] | Member Search | Sign Off | [main] Internal Server Error The server encountered an internal error and was unable to complete your request. Error reference: ERR-0x01F4. Please contact the Help Desk at ext. 4400. MSD/4.2.1",
+  "evidence_paths": [
+    "runs/demo-20260929T124521/06-server-error-hard-failure/evidence/s04-screen.png",
+    "runs/demo-20260929T124521/06-server-error-hard-failure/evidence/s04-aria.txt",
+    "runs/demo-20260929T124521/06-server-error-hard-failure/evidence/s04-dom.html"
+  ],
+  "recoveries": [],
+  "run_dir": "runs/demo-20260929T124521/06-server-error-hard-failure"
+}

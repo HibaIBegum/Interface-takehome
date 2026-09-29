@@ -10,6 +10,7 @@ human's actions are only recorded while the state is HUMAN. Every transition is 
 
 from __future__ import annotations
 
+import time
 from enum import Enum
 from typing import Protocol
 
@@ -54,6 +55,11 @@ class Controller:
         self.state = ControlState.AGENT
         self.log = log
         self.history: list[Transition] = []
+        self._timeline: list[tuple[float, ControlState]] = [(0.0, ControlState.AGENT)]  # (epoch ms, state)
+
+    def state_at(self, epoch_ms: float) -> ControlState:
+        """Who held control at a given moment (events can be delivered after they happened)."""
+        return next(state for at, state in reversed(self._timeline) if at <= epoch_ms)
 
     def automation_may_act(self) -> bool:
         return self.state is ControlState.AGENT
@@ -64,6 +70,7 @@ class Controller:
             raise InvalidTransition(f"{self.state.value} -> {to.value} is not allowed")
         record = Transition(at=now_iso(), from_state=self.state, to_state=to, by=by, why=why)
         self.history.append(record)
+        self._timeline.append((time.time() * 1000, to))
         self.state = to
         self.log.step({"event": "control_transition", **record.model_dump(mode="json")})
         self.log.echo(f"   control: {record.from_state.value} -> {record.to_state.value} by {by} ({why})")
@@ -104,7 +111,7 @@ class HandoffSession:
         self.operator = operator
         self.subject = subject
         self.controller = controller or Controller(log)
-        self.recorder = HumanActionRecorder(log)
+        self.recorder = HumanActionRecorder(log, state=lambda at_ms: self.controller.state_at(at_ms).value)
         self.requests = 0
         surface.enable_capture(self.recorder)
 
@@ -125,6 +132,7 @@ class HandoffSession:
         write_request(self.log, request, self.requests)
         self.operator.show(InterventionRequest.model_validate(self.log.redactor.obj(request.model_dump(mode="json"))))
         self.controller.transition(ControlState.AWAITING_HUMAN, by="automation", why=f"{trigger}: {reason}")
+        self.recorder.open()  # automation is paused from here: every event in the window is a person's
         before = len(self.recorder.actions)
 
         def pump() -> None:
@@ -141,7 +149,6 @@ class HandoffSession:
                 return HandoffOutcome(command="abort", human_actions=len(self.recorder.actions) - before)
             elif command == "take" and state is ControlState.AWAITING_HUMAN:
                 self.controller.transition(ControlState.HUMAN, by=self.operator.name, why="took control")
-                self.recorder.open()
                 self.operator.say("You have control of the browser window. Type 'resume' when done.")
             elif command == "resume" and state in (ControlState.HUMAN, ControlState.AWAITING_HUMAN):
                 self.surface.flush_capture()  # a field still being edited has not fired `change` yet
@@ -150,6 +157,7 @@ class HandoffSession:
                 self.controller.transition(ControlState.AGENT, by=self.operator.name, why="resumed automation")
                 return HandoffOutcome(command="resume", human_actions=len(self.recorder.actions) - before)
             elif command in ("approve", "deny") and state is ControlState.AWAITING_HUMAN:
+                self.recorder.close()
                 self.controller.transition(ControlState.AGENT, by=self.operator.name, why=f"{command}d the action")
                 return HandoffOutcome(command=command, human_actions=0)
             else:

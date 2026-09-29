@@ -1,0 +1,23 @@
+{
+  "run_id": "01-discovery",
+  "goal": "look up member {member_id} and read their savings balance",
+  "entry_url": "http://127.0.0.1:5066/login",
+  "params": [
+    {
+      "name": "member_id",
+      "sensitive": false,
+      "example": "100234"
+    },
+    {
+      "name": "username",
+      "sensitive": true,
+      "example": null
+    },
+    {
+      "name": "password",
+      "sensitive": true,
+      "example": null
+    }
+  ],
+  "started_at": "2026-09-29T12:45:22.930+00:00"
+}

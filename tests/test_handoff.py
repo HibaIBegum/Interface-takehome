@@ -239,3 +239,16 @@ def test_unattended_runs_abort_handoffs(surface, tmp_path):
                              operator=UnattendedOperator(), subject="test")
     assert session.request(trigger="stuck", reason="nobody home", step_id=None).command == "abort"
     assert session.controller.state is ControlState.ABORTED
+
+
+def test_actions_before_take_are_recorded_and_flagged(handoff_replay, lookup_artifact, mock_server, surface):
+    """Found in a real demo: the operator searched in the browser before typing `take`. That must be in
+    the log (tagged awaiting_human), not silently dropped."""
+    post_json(f"{mock_server}/__faults", {"fault": "server_error"})
+    operator = ScriptedOperator(human_searches(surface, "100234"), "take", "resume")
+    result, events, _, _ = handoff_replay(lookup_artifact, operator)
+    assert isinstance(result, Success), result
+    states = {(a["kind"], a.get("name") or a.get("label")): a["control_state"]
+              for a in of(events, "human_action") if a["kind"] != "navigate"}
+    assert states == {("click", "Member Search"): "awaiting_human", ("fill", "Member ID"): "awaiting_human",
+                      ("click", "Search"): "awaiting_human"}

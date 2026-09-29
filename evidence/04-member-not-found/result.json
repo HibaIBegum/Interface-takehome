@@ -1,0 +1,8 @@
+{
+  "status": "business_outcome",
+  "code": "MEMBER_NOT_FOUND",
+  "message": "No member exists with the given member ID.",
+  "step_id": "s06",
+  "recoveries": [],
+  "run_dir": "runs/demo-20260929T124521/04-member-not-found"
+}

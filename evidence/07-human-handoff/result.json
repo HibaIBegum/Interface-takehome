@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "outputs": {
+    "savings_balance": "[REDACTED:money]"
+  },
+  "recoveries": [
+    {
+      "step_id": "s04",
+      "kind": "human_handoff",
+      "signature": null,
+      "detail": "5 human action(s); verified the screen; continuing at s07"
+    }
+  ],
+  "run_dir": "runs/demo-20260929T124521/07-human-handoff"
+}

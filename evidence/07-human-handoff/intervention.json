@@ -1,0 +1,20 @@
+{
+  "run_id": "07-human-handoff",
+  "subject": "lookup-savings-balance v1.0.0 (approved)",
+  "step_id": "s04",
+  "trigger": "replay_failure",
+  "reason": "hard_failure: The server returned an error page; whether the last action took effect is unknown.",
+  "current_url": "http://127.0.0.1:5066/desk",
+  "frames": {
+    "top": "http://127.0.0.1:5066/desk",
+    "hdr": "http://127.0.0.1:5066/hdr",
+    "main": "http://127.0.0.1:5066/app/search"
+  },
+  "screenshot": "intervention-1.png",
+  "allowed_commands": [
+    "take",
+    "resume",
+    "abort"
+  ],
+  "requested_at": "2026-09-29T12:45:59.291+00:00"
+}

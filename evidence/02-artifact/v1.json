@@ -1,0 +1,670 @@
+{
+  "schema_version": "1.0",
+  "capability": {
+    "id": "lookup-savings-balance",
+    "name": "Look up savings balance",
+    "description": "Look up member {member_id} and read their savings balance. Inputs: member_id, username (secret), password (secret). Returns: savings_balance (currency). Read-only. May instead return a business outcome: MEMBER_NOT_FOUND, PERMISSION_DENIED, INSUFFICIENT_FUNDS, BELOW_MINIMUM_DEPOSIT, INVALID_INPUT.",
+    "version": "1.0.0",
+    "status": "approved"
+  },
+  "target_app": {
+    "vendor_product": "First Fictional CU Member Services Desk",
+    "app_version": "MSD/4.2.1",
+    "entry_route": "/login"
+  },
+  "inputs": [
+    {
+      "name": "member_id",
+      "type": "string",
+      "pattern": "\\d{6}",
+      "sensitive": false,
+      "description": "Typed into 'Member ID'. Pattern inferred from one example; review."
+    },
+    {
+      "name": "username",
+      "type": "string",
+      "pattern": null,
+      "sensitive": true,
+      "description": "Secret, supplied at run time and never stored. Typed into 'User ID'."
+    },
+    {
+      "name": "password",
+      "type": "string",
+      "pattern": null,
+      "sensitive": true,
+      "description": "Secret, supplied at run time and never stored. Typed into 'Password'."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "savings_balance",
+      "type": "currency",
+      "source_step": "s07",
+      "redact_in_logs": false
+    }
+  ],
+  "steps": [
+    {
+      "id": "s01",
+      "intent": "Open /login",
+      "action": "navigate",
+      "target": null,
+      "value_template": "/login",
+      "output": null,
+      "risk": "safe",
+      "precondition": null,
+      "checkpoint": {
+        "kind": "url_matches",
+        "route": "/login",
+        "frame_path": []
+      },
+      "performed_by": "agent"
+    },
+    {
+      "id": "s02",
+      "intent": "Enter {username} into 'User ID'",
+      "action": "fill",
+      "target": {
+        "candidates": [
+          {
+            "candidate": {
+              "strategy": "label",
+              "value": "User ID",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "the visible caption a teller reads next to the field"
+          },
+          {
+            "candidate": {
+              "strategy": "css",
+              "value": "[name=\"uid\"]",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "HTML form field name: the server's POST contract, stable across reskins but invisible to users"
+          },
+          {
+            "candidate": {
+              "strategy": "text_near",
+              "value": "User ID",
+              "role": "textbox",
+              "column": null,
+              "frame_path": []
+            },
+            "why": "the control in the table cell right of its caption"
+          },
+          {
+            "candidate": {
+              "strategy": "coords",
+              "value": "662,90",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "last resort: position at the recorded 1280x800 viewport; breaks on any layout change"
+          }
+        ],
+        "description": "'User ID'"
+      },
+      "value_template": "{username}",
+      "output": null,
+      "risk": "safe",
+      "precondition": {
+        "kind": "url_matches",
+        "route": "/login",
+        "frame_path": []
+      },
+      "checkpoint": null,
+      "performed_by": "agent"
+    },
+    {
+      "id": "s03",
+      "intent": "Enter {password} into 'Password'",
+      "action": "fill",
+      "target": {
+        "candidates": [
+          {
+            "candidate": {
+              "strategy": "label",
+              "value": "Password",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "the visible caption a teller reads next to the field"
+          },
+          {
+            "candidate": {
+              "strategy": "css",
+              "value": "[name=\"pwd\"]",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "HTML form field name: the server's POST contract, stable across reskins but invisible to users"
+          },
+          {
+            "candidate": {
+              "strategy": "text_near",
+              "value": "Password",
+              "role": "textbox",
+              "column": null,
+              "frame_path": []
+            },
+            "why": "the control in the table cell right of its caption"
+          },
+          {
+            "candidate": {
+              "strategy": "coords",
+              "value": "662,122",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "last resort: position at the recorded 1280x800 viewport; breaks on any layout change"
+          }
+        ],
+        "description": "'Password'"
+      },
+      "value_template": "{password}",
+      "output": null,
+      "risk": "safe",
+      "precondition": {
+        "kind": "url_matches",
+        "route": "/login",
+        "frame_path": []
+      },
+      "checkpoint": null,
+      "performed_by": "agent"
+    },
+    {
+      "id": "s04",
+      "intent": "Click 'Sign On'",
+      "action": "click",
+      "target": {
+        "candidates": [
+          {
+            "candidate": {
+              "strategy": "role_name",
+              "value": "Sign On",
+              "role": "button",
+              "column": null,
+              "frame_path": []
+            },
+            "why": "ARIA role + accessible name, how assistive tech finds it; survives layout and styling changes"
+          },
+          {
+            "candidate": {
+              "strategy": "coords",
+              "value": "618,152",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "last resort: position at the recorded 1280x800 viewport; breaks on any layout change"
+          }
+        ],
+        "description": "'Sign On'"
+      },
+      "value_template": null,
+      "output": null,
+      "risk": "safe",
+      "precondition": {
+        "kind": "url_matches",
+        "route": "/login",
+        "frame_path": []
+      },
+      "checkpoint": {
+        "kind": "all",
+        "conditions": [
+          {
+            "kind": "url_matches",
+            "route": "/desk",
+            "frame_path": []
+          },
+          {
+            "kind": "url_matches",
+            "route": "/hdr",
+            "frame_path": [
+              "hdr"
+            ]
+          },
+          {
+            "kind": "url_matches",
+            "route": "/app/search",
+            "frame_path": [
+              "main"
+            ]
+          }
+        ]
+      },
+      "performed_by": "agent"
+    },
+    {
+      "id": "s05",
+      "intent": "Enter {member_id} into 'Member ID'",
+      "action": "fill",
+      "target": {
+        "candidates": [
+          {
+            "candidate": {
+              "strategy": "label",
+              "value": "Member ID",
+              "role": null,
+              "column": null,
+              "frame_path": [
+                "main"
+              ]
+            },
+            "why": "the visible caption a teller reads next to the field"
+          },
+          {
+            "candidate": {
+              "strategy": "css",
+              "value": "[name=\"mid\"]",
+              "role": null,
+              "column": null,
+              "frame_path": [
+                "main"
+              ]
+            },
+            "why": "HTML form field name: the server's POST contract, stable across reskins but invisible to users"
+          },
+          {
+            "candidate": {
+              "strategy": "text_near",
+              "value": "Member ID",
+              "role": "textbox",
+              "column": null,
+              "frame_path": [
+                "main"
+              ]
+            },
+            "why": "the control in the table cell right of its caption"
+          },
+          {
+            "candidate": {
+              "strategy": "coords",
+              "value": "212,108",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "last resort: position at the recorded 1280x800 viewport; breaks on any layout change"
+          }
+        ],
+        "description": "'Member ID'"
+      },
+      "value_template": "{member_id}",
+      "output": null,
+      "risk": "safe",
+      "precondition": {
+        "kind": "url_matches",
+        "route": "/app/search",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "checkpoint": null,
+      "performed_by": "agent"
+    },
+    {
+      "id": "s06",
+      "intent": "Click 'Search'",
+      "action": "click",
+      "target": {
+        "candidates": [
+          {
+            "candidate": {
+              "strategy": "role_name",
+              "value": "Search",
+              "role": "button",
+              "column": null,
+              "frame_path": [
+                "main"
+              ]
+            },
+            "why": "ARIA role + accessible name, how assistive tech finds it; survives layout and styling changes"
+          },
+          {
+            "candidate": {
+              "strategy": "coords",
+              "value": "191,136",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "last resort: position at the recorded 1280x800 viewport; breaks on any layout change"
+          }
+        ],
+        "description": "'Search'"
+      },
+      "value_template": null,
+      "output": null,
+      "risk": "safe",
+      "precondition": {
+        "kind": "url_matches",
+        "route": "/app/search",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "checkpoint": {
+        "kind": "url_matches",
+        "route": "/app/member?m=:member_id",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "performed_by": "agent"
+    },
+    {
+      "id": "s07",
+      "intent": "Read 'Savings' / 'Balance' as savings_balance",
+      "action": "extract",
+      "target": {
+        "candidates": [
+          {
+            "candidate": {
+              "strategy": "text_near",
+              "value": "Savings",
+              "role": null,
+              "column": "Balance",
+              "frame_path": [
+                "main"
+              ]
+            },
+            "why": "row caption + column header: survives row reordering and restyling"
+          },
+          {
+            "candidate": {
+              "strategy": "coords",
+              "value": "477,214",
+              "role": null,
+              "column": null,
+              "frame_path": []
+            },
+            "why": "last resort: position at the recorded 1280x800 viewport; breaks on any layout change"
+          }
+        ],
+        "description": "'Savings' / 'Balance'"
+      },
+      "value_template": null,
+      "output": "savings_balance",
+      "risk": "safe",
+      "precondition": {
+        "kind": "url_matches",
+        "route": "/app/member?m=:member_id",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "checkpoint": null,
+      "performed_by": "agent"
+    }
+  ],
+  "error_signatures": [
+    {
+      "id": "member-not-found",
+      "match": {
+        "kind": "text_present",
+        "text": "No member found",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "classification": "business_outcome",
+      "outcome_code": "MEMBER_NOT_FOUND",
+      "message": "No member exists with the given member ID.",
+      "recovery": null
+    },
+    {
+      "id": "permission-denied",
+      "match": {
+        "kind": "text_present",
+        "text": "Access Denied",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "classification": "business_outcome",
+      "outcome_code": "PERMISSION_DENIED",
+      "message": "The signed-in user is not authorized to access this member record.",
+      "recovery": null
+    },
+    {
+      "id": "insufficient-funds",
+      "match": {
+        "kind": "text_present",
+        "text": "Insufficient funds",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "classification": "business_outcome",
+      "outcome_code": "INSUFFICIENT_FUNDS",
+      "message": "The amount exceeds the available balance of the funding account.",
+      "recovery": null
+    },
+    {
+      "id": "below-minimum-deposit",
+      "match": {
+        "kind": "text_present",
+        "text": "Minimum opening deposit",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "classification": "business_outcome",
+      "outcome_code": "BELOW_MINIMUM_DEPOSIT",
+      "message": "The initial deposit is below the minimum for this product.",
+      "recovery": null
+    },
+    {
+      "id": "validation-error",
+      "match": {
+        "kind": "text_present",
+        "text": "Please correct the errors below.",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "classification": "business_outcome",
+      "outcome_code": "INVALID_INPUT",
+      "message": "The application rejected one or more input values.",
+      "recovery": null
+    },
+    {
+      "id": "session-expired",
+      "match": {
+        "kind": "text_present",
+        "text": "Your session has expired",
+        "frame_path": null
+      },
+      "classification": "recoverable",
+      "outcome_code": "SESSION_EXPIRED",
+      "message": "The session timed out; sign in again and resume from the last verified checkpoint.",
+      "recovery": {
+        "kind": "reauthenticate",
+        "target": null,
+        "max_attempts": 1,
+        "allowed_on_irreversible": false
+      }
+    },
+    {
+      "id": "system-notice",
+      "match": {
+        "kind": "all",
+        "conditions": [
+          {
+            "kind": "text_present",
+            "text": "System Notice",
+            "frame_path": [
+              "main"
+            ]
+          },
+          {
+            "kind": "element_visible",
+            "target": {
+              "candidates": [
+                {
+                  "candidate": {
+                    "strategy": "role_name",
+                    "value": "OK",
+                    "role": "button",
+                    "column": null,
+                    "frame_path": [
+                      "main"
+                    ]
+                  },
+                  "why": "the only button on the notice"
+                }
+              ],
+              "description": "System Notice OK button"
+            }
+          }
+        ]
+      },
+      "classification": "recoverable",
+      "outcome_code": "INTERSTITIAL",
+      "message": "An unexpected system notice covered the page.",
+      "recovery": {
+        "kind": "dismiss",
+        "target": {
+          "candidates": [
+            {
+              "candidate": {
+                "strategy": "role_name",
+                "value": "OK",
+                "role": "button",
+                "column": null,
+                "frame_path": [
+                  "main"
+                ]
+              },
+              "why": "the only button on the notice"
+            }
+          ],
+          "description": "System Notice OK button"
+        },
+        "max_attempts": 3,
+        "allowed_on_irreversible": true
+      }
+    },
+    {
+      "id": "server-error",
+      "match": {
+        "kind": "text_present",
+        "text": "Internal Server Error",
+        "frame_path": null
+      },
+      "classification": "hard_failure",
+      "outcome_code": "SERVER_ERROR",
+      "message": "The server returned an error page; whether the last action took effect is unknown.",
+      "recovery": null
+    },
+    {
+      "id": "request-expired",
+      "match": {
+        "kind": "text_present",
+        "text": "Request Not Available",
+        "frame_path": [
+          "main"
+        ]
+      },
+      "classification": "hard_failure",
+      "outcome_code": "REQUEST_EXPIRED",
+      "message": "The pending request is no longer available; the flow must be restarted by a human.",
+      "recovery": null
+    },
+    {
+      "id": "sign-on-failed",
+      "match": {
+        "kind": "text_present",
+        "text": "Invalid User ID or Password",
+        "frame_path": null
+      },
+      "classification": "hard_failure",
+      "outcome_code": "AUTH_FAILED",
+      "message": "The supplied credentials were rejected.",
+      "recovery": null
+    }
+  ],
+  "success_condition": {
+    "kind": "all",
+    "conditions": [
+      {
+        "kind": "all",
+        "conditions": [
+          {
+            "kind": "url_matches",
+            "route": "/desk",
+            "frame_path": []
+          },
+          {
+            "kind": "url_matches",
+            "route": "/hdr",
+            "frame_path": [
+              "hdr"
+            ]
+          },
+          {
+            "kind": "url_matches",
+            "route": "/app/member?m=:member_id",
+            "frame_path": [
+              "main"
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "element_visible",
+        "target": {
+          "candidates": [
+            {
+              "candidate": {
+                "strategy": "text_near",
+                "value": "Savings",
+                "role": null,
+                "column": "Balance",
+                "frame_path": [
+                  "main"
+                ]
+              },
+              "why": "row caption + column header: survives row reordering and restyling"
+            },
+            {
+              "candidate": {
+                "strategy": "coords",
+                "value": "477,214",
+                "role": null,
+                "column": null,
+                "frame_path": []
+              },
+              "why": "last resort: position at the recorded 1280x800 viewport; breaks on any layout change"
+            }
+          ],
+          "description": "'Savings' / 'Balance'"
+        }
+      }
+    ]
+  },
+  "provenance": {
+    "discovery_run_id": "01-discovery",
+    "models": [
+      "claude-opus-4-8"
+    ],
+    "recorded_at": "2026-09-29T12:45:42.577633Z",
+    "human_steps": [],
+    "note": "Recorded offline from run 01-discovery: kept 7 actions, dropped 0 (failed, denied or incidental recovery). No human intervention. Locator candidates are generated from the run's observations and verified at replay."
+  },
+  "sign_in_steps": [
+    "s01",
+    "s02",
+    "s03",
+    "s04"
+  ]
+}

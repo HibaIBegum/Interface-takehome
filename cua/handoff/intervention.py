@@ -50,8 +50,9 @@ def now_iso() -> str:
 class HumanActionRecorder:
     """Receives capture events from the surface; logs the ones inside the human's control window."""
 
-    def __init__(self, log: RunLog):
+    def __init__(self, log: RunLog, state=lambda at_ms: "unknown"):
         self.log = log
+        self.state = state  # control state at a given epoch ms, recorded on each action
         self.window: tuple[float, float] | None = None  # epoch ms [start, end]; end=inf while open
         self.actions: list[dict] = []
 
@@ -67,7 +68,9 @@ class HumanActionRecorder:
         if self.window is None or not (self.window[0] <= at <= self.window[1]):
             return  # automation's own clicks fire the same DOM events; only the human window counts
         kind = payload.get("kind")
-        action = {"event": "human_action", "kind": kind, "frame_path": frame_path,
+        # While automation is paused, anything that happens in the window is a person. Record it even
+        # before they type `take`, tagged with the state, so acting without control is visible.
+        action = {"event": "human_action", "kind": kind, "frame_path": frame_path, "control_state": self.state(at),
                   "at": datetime.fromtimestamp(at / 1000, timezone.utc).isoformat(timespec="milliseconds")}
         if kind == "navigate":
             action["url"] = payload.get("url", "")

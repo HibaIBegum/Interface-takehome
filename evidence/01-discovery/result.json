@@ -1,0 +1,9 @@
+{
+  "outcome": "done",
+  "summary": "Looked up member 100234 (Jane Q. Testmember). Their savings balance is [REDACTED:money].",
+  "extracted": {
+    "savings_balance": "[REDACTED:money]"
+  },
+  "steps": 7,
+  "run_dir": "runs/demo-20260929T124521/01-discovery"
+}

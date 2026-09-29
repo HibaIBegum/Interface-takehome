@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "outputs": {
+    "savings_balance": "[REDACTED:money]"
+  },
+  "recoveries": [
+    {
+      "step_id": "s04",
+      "kind": "reauthenticate",
+      "signature": "session-expired",
+      "detail": "signed in again; resuming at s05"
+    }
+  ],
+  "run_dir": "runs/demo-20260929T124521/05-session-timeout-recovered"
+}
